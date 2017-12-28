@@ -16,10 +16,11 @@ func Migrate(db *sql.DB, migrations []interface{}) error {
 
 	var migrationNumber int
 	if err := db.QueryRow("SELECT last_value FROM last_migration").Scan(&migrationNumber); err != nil {
-		return fmt.Errorf("get last migration number: %v", err)
+		// Here we can log error, but in most cases this error indicates that we don't have last_migration object
+		// log.Println("get last migration number: %v", err)
 	}
 
-	if migrationNumber == len(migrations)-1 {
+	if migrationNumber >= len(migrations)-1 {
 		// we don't have actual migrations
 		return nil
 	}
