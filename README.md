@@ -1,3 +1,5 @@
+[![Go Report Card](https://goreportcard.com/badge/github.com/gigovich/vsmt)](https://goreportcard.com/report/github.com/gigovich/vsmt)
+
 # Very Simple Migration Tool
 This package don't supports rollback, squahs and complex features available in other migration packages.
 It's handle only PostgreSQL and uses sequences feature to store migration number.
