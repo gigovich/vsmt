@@ -10,14 +10,42 @@ import (
 type MigrationFunc func(*sql.Tx) error
 
 // Migrate list of migrations. Migration list can contain query strings or MigrationFuncs
-func Migrate(db *sql.DB, migrations []interface{}) error {
+func Migrate(db *sql.DB, scheme []string, migrations []interface{}) error {
 	// prepend migrations list with initial query which creates migration sequence
-	migrations = append([]interface{}{"CREATE SEQUENCE last_migration START 1"}, migrations...)
+	migrations = append([]interface{}{"CREATE SEQUENCE last_migration START WITH 1"}, migrations...)
 
 	var migrationNumber int
 	if err := db.QueryRow("SELECT last_value FROM last_migration").Scan(&migrationNumber); err != nil {
 		// Here we can log error, but in most cases this error indicates that we don't have last_migration object
 		// log.Println("get last migration number: %v", err)
+	}
+
+	// inital migration, create scheme
+	if migrationNumber == 0 {
+		tx, err := db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin tx: %v", err)
+		}
+
+		for i, query := range scheme {
+			if _, err := tx.Exec(query); err != nil {
+				tx.Rollback()
+				return fmt.Errorf("exec scheme query #%v: %v", i, err)
+			}
+		}
+
+		_, err = tx.Exec(fmt.Sprintf("CREATE SEQUENCE last_migration START WITH %d", len(migrations)))
+		if err != nil {
+			tx.Rollback()
+			return fmt.Errorf("set correct last migration number: %v", err)
+		}
+
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit scheme: %v", err)
+		}
+
+		// scheme is always actula, so no need exec migrations
+		return nil
 	}
 
 	if migrationNumber >= len(migrations)-1 {

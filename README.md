@@ -47,3 +47,11 @@ func init() {
 	}
 }
 ```
+
+## Tests
+For testing you should use real database connection.
+
+1. Create database
+2. Copy `.env_example` to `.evn`
+3. Edit `.env` and replace `PG_*` variables with your values
+4. Run testing `go test .`
