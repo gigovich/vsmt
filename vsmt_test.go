@@ -15,31 +15,62 @@ func TestMigrations(t *testing.T) {
 	db := getDB(t)
 	defer db.Close()
 
-	if _, err := db.Exec("DROP TABLE IF EXISTS table1"); err != nil {
-		t.Error(err)
-	}
-
-	if _, err := db.Exec("DROP TABLE IF EXISTS table2"); err != nil {
-		t.Error(err)
-	}
-
 	scheme := []string{
-		`CREATE TABLE table1 (id serial, name text, name2 text)`,
-		`CREATE TABLE table2 (id serial, name text)`,
+		`CREATE TABLE table1 (id serial, name text)`,
+		`CREATE TABLE table2 (id serial, name text, name2 text)`,
 	}
 
 	migrations := []interface{}{
-		`ALTER TABLE table1 ADD COLUMN name1 text`,
+		`ALTER TABLE table1 ADD COLUMN name text`,
 	}
 
-	if err := Migrate(db, scheme, migrations); err != nil {
+	tx, err := db.Begin()
+	if err != nil {
+		t.Errorf("create transaction: %v", err)
+		return
+	}
+	defer tx.Rollback()
+
+	if err := Migrate(tx, scheme, migrations); err != nil {
 		t.Errorf("migrate schema: %v", err)
 		return
 	}
 
 	t.Run("first insert", func(t *testing.T) {
-		if _, err := db.Exec("INSERT INTO table2(name, name2) VALUES ($1, $2)", "name1", "name2"); err != nil {
+		if _, err := tx.Exec("INSERT INTO table2(name, name2) VALUES ($1, $2)", "name1", "name2"); err != nil {
 			t.Errorf("can't insert data: %v", err)
+		}
+	})
+
+	t.Run("call migration second time", func(t *testing.T) {
+		if err := Migrate(tx, scheme, migrations); err != nil {
+			t.Errorf("migrate schema second time: %v", err)
+		}
+	})
+
+	t.Run("add one more migration", func(t *testing.T) {
+		scheme[0] = `CREATE TABLE table1 (id serial, name text, name2 text)`
+		migrations = append(migrations, "ALTER TABLE table1 ADD COLUMN name2 text")
+
+		if err := Migrate(tx, scheme, migrations); err != nil {
+			t.Errorf("migrate schema second time: %v", err)
+		}
+	})
+
+	t.Run("second insert", func(t *testing.T) {
+		if _, err := tx.Exec("INSERT INTO table2(name, name2) VALUES ($1, $2)", "name1", "name2"); err != nil {
+			t.Errorf("can't insert data: %v", err)
+		}
+	})
+
+	t.Run("add migration through functionn", func(t *testing.T) {
+		migrations = append(migrations,
+			func(tx *sql.Tx) error {
+				_, err := tx.Query("SELECT 1")
+				return err
+			})
+		if err := Migrate(tx, scheme, migrations); err != nil {
+			t.Errorf("migrate schema second time: %v", err)
 		}
 	})
 }
