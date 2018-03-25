@@ -1,9 +1,10 @@
+// Package vsmt provides simple migrations for PostgreSQL database but it don't supports rollback,
+// squahs and complex features available in other migration packages.
 package vsmt
 
 import (
 	"database/sql"
 	"fmt"
-	_ "github.com/lib/pq"
 )
 
 // MigrationFunc for complex migrations. Execute any required queries inside this function. Don't commit transaction
@@ -12,39 +13,14 @@ type MigrationFunc func(*sql.Tx) error
 
 // Migrate list of migrations. Migration list can contain query strings or MigrationFuncs
 func Migrate(tx *sql.Tx, scheme []string, migrations []interface{}) error {
-	// prepend migrations list with initial query which creates migration sequence
-	migrations = append([]interface{}{"CREATE SEQUENCE last_migration START WITH 1"}, migrations...)
-
-	var migrationNumber int
-
-	if _, err := tx.Exec("SAVEPOINT check_last_migration"); err != nil {
-		return fmt.Errorf("start nested transaction: %v", err)
+	migrationNumber, err := getLastMigration(tx)
+	if err != nil {
+		return err
 	}
 
-	if err := tx.QueryRow("SELECT last_value FROM last_migration").Scan(&migrationNumber); err != nil {
-		// Here we can log error, but in most cases this error indicates that we don't have last_migration object
-		// log.Println("get last migration number: %v", err)
-	}
-
-	if _, err := tx.Exec("ROLLBACK TO SAVEPOINT check_last_migration"); err != nil {
-		return fmt.Errorf("rollback nested transaction: %v", err)
-	}
-
-	// inital migration, create scheme
+	// empty database, so we just create schema and migration sequence
 	if migrationNumber == 0 {
-		for i, query := range scheme {
-			if _, err := tx.Exec(query); err != nil {
-				return fmt.Errorf("exec scheme query #%v: %v", i, err)
-			}
-		}
-
-		_, err := tx.Exec(fmt.Sprintf("CREATE SEQUENCE last_migration START WITH %d", len(migrations)))
-		if err != nil {
-			return fmt.Errorf("set correct last migration number: %v", err)
-		}
-
-		// scheme is always actula, so no need exec migrations
-		return nil
+		return initSchemaAndMigration(tx, scheme)
 	}
 
 	if migrationNumber >= len(migrations) {
@@ -55,31 +31,71 @@ func Migrate(tx *sql.Tx, scheme []string, migrations []interface{}) error {
 	// iterate over all migrations
 	for i, migration := range migrations[migrationNumber:] {
 		// execute migration string or function
-		if err := exec(tx, migration); err != nil {
+		if err := execMigration(tx, migration); err != nil {
 			return fmt.Errorf("exec migration #%v: %v", i, err)
-		}
-
-		// update migration number
-		res, err := tx.Exec(`SELECT nextval('last_migration')`)
-		if err != nil {
-			return fmt.Errorf("increase migration number: %v", err)
 		}
 	}
 
 	return nil
 }
 
-// exec query and updates current migration number
-func exec(tx *sql.Tx, query interface{}) error {
+// execMigration query and updates current migration number
+func execMigration(tx *sql.Tx, query interface{}) error {
 	switch q := query.(type) {
 	case string:
 		// execute query string
-		_, err := tx.Exec(q)
-		return err
+		if _, err := tx.Exec(q); err != nil {
+			return err
+		}
 	case MigrationFunc:
 		// run migration functions
-		return q(tx)
+		if err := q(tx); err != nil {
+			return err
+		}
 	default:
 		return fmt.Errorf("migration item shuld be a query string or MigrationFunc type")
 	}
+
+	// update migration number
+	q, err := tx.Query(`SELECT nextval('last_migration')`)
+	if err != nil {
+		return fmt.Errorf("increase migration number: %v", err)
+	}
+
+	return q.Close()
+}
+
+// getLastMigration if sequence is not set transaction will not affected. if migration number is 0 it means
+// that database was empty, and we can create scheme from scratch. This method use PostgreSQL savepoint feature.
+func getLastMigration(tx *sql.Tx) (migrationNumber int, err error) {
+	if _, err := tx.Exec("SAVEPOINT check_last_migration"); err != nil {
+		return migrationNumber, fmt.Errorf("start nested transaction: %v", err)
+	}
+	defer tx.Exec("RELEASE SAVEPOINT check_last_migration")
+
+	if err := tx.QueryRow("SELECT last_value FROM last_migration").Scan(&migrationNumber); err != nil {
+		// Here we rollback transaction to savepoint
+		// This error indicates that we don't have last_migration object
+		if _, err := tx.Exec("ROLLBACK TO SAVEPOINT check_last_migration"); err != nil {
+			return migrationNumber, fmt.Errorf("rollback nested transaction: %v", err)
+		}
+	}
+	return
+}
+
+// initSchemaAndMigration will creates all items from scheme list and 'last_migration'
+func initSchemaAndMigration(tx *sql.Tx, scheme []string) error {
+	// append sequence creation to scheme queries, and call nextval one time, to set it value 1
+	scheme = append(scheme,
+		"CREATE SEQUENCE last_migration",
+		"SELECT nextval('last_migration')",
+	)
+	for i, query := range scheme {
+		if _, err := tx.Exec(query); err != nil {
+			return fmt.Errorf("exec scheme query #%v: %v", i, err)
+		}
+	}
+
+	// scheme is always actula, so no need exec migrations
+	return nil
 }

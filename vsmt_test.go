@@ -58,17 +58,21 @@ func TestMigrations(t *testing.T) {
 	})
 
 	t.Run("second insert", func(t *testing.T) {
-		if _, err := tx.Exec("INSERT INTO table2(name, name2) VALUES ($1, $2)", "name1", "name2"); err != nil {
-			t.Errorf("can't insert data: %v", err)
+		if _, err := tx.Exec("INSERT INTO table1(name, name2) VALUES ($1, $2);", "name1", "name2"); err != nil {
+			t.Errorf("can't insert data: %+v", err)
 		}
 	})
 
-	t.Run("add migration through functionn", func(t *testing.T) {
+	t.Run("add migration through function", func(t *testing.T) {
 		migrations = append(migrations,
-			func(tx *sql.Tx) error {
-				_, err := tx.Query("SELECT 1")
-				return err
-			})
+			MigrationFunc(func(tx *sql.Tx) error {
+				q, err := tx.Query("SELECT 1")
+				if err != nil {
+					return err
+				}
+
+				return q.Close()
+			}))
 		if err := Migrate(tx, scheme, migrations); err != nil {
 			t.Errorf("migrate schema second time: %v", err)
 		}
