@@ -1,0 +1,16 @@
+language: go
+
+go:
+  - 1.10.x
+  - master
+
+services:
+  - postgresql
+
+before_script:
+  - psql -c "create user vsmt with password 'vsmt';" -U postgres
+  - psql -c "create database vsmt with owner 'vsmt';" -U postgres
+  - cp .env_example .env
+
+script: go test ./...
+

@@ -1,3 +1,5 @@
+[![Build Status](https://travis-ci.org/gigovich/vsmt.svg?branch=master)](https://travis-ci.org/gigovich/vsmt)
+[![GoDoc](http://img.shields.io/badge/go-documentation-blue.svg?style=flat-square)](http://godoc.org/github.com/gigovich/vsmt)
 [![Go Report Card](https://goreportcard.com/badge/github.com/gigovich/vsmt)](https://goreportcard.com/report/github.com/gigovich/vsmt)
 
 # Very Simple Migration Tool
