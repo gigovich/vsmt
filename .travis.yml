@@ -8,8 +8,8 @@ services:
   - postgresql
 
 before_script:
-  - psql -c "create user vsmt with password 'vsmt';" -U postgres
-  - psql -c "create database vsmt with owner 'vsmt';" -U postgres
+  - psql -U postgres -c "create user vsmt with password 'vsmt';"
+  - psql -U postgres -c "create database vsmt with owner 'vsmt';"
   - cp .env_example .env
 
 script: go test ./...
